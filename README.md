@@ -9,7 +9,6 @@ todo:
 - better graphics
 - sound effects
 - music
-- high score page
 - main menu and settings pages
 - ai
 - online multiplayer
