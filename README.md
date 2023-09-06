@@ -4,7 +4,7 @@ Aperiodic Pool
 todo:
 - adjust the holes for better balance
 - translate the ball positions when rotation key is press
---ive each ball its proper color
+- give each ball its proper color
 - add 8 ball and logic for it
 - multiplayer
 - better graphics
