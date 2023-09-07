@@ -1,26 +1,70 @@
-import pygame
-from pygame.locals import QUIT, KEYDOWN
+import pygame, math
+from pygame.locals import QUIT, KEYDOWN, MOUSEBUTTONDOWN
 import numpy as np
 from pygame.math import Vector2
 import pygame.gfxdraw
 
 class Ball:
-    def __init__(self, pos, color):
+    def __init__(self, pos, color, is_striped=False):
         self.pos = Vector2(pos)
         self.vel = Vector2(0, 0)
         self.color = color
+        self.is_striped = is_striped
         self.radius = 10
+        self.angle = 0  # rotation angle of the stripes
+        self.offset = 0 # distance from the center to the beginning of the stripe
+        self.offset_direction = 1  # controls the direction of stripe offset (1 for outward, -1 for inward)
 
     def move(self):
         self.pos += self.vel
         self.vel *= 0.98  # Friction
-
-    def draw(self, screen):
-        # Draw the outline first
-        pygame.draw.circle(screen, (0, 0, 0), (int(self.pos.x), int(self.pos.y)), self.radius + 1)
+        self.angle += self.vel.length() * 0.05
         
-        # Then draw the ball over the outline
+        # Only adjust the stripe offset when the ball is in motion
+        if self.vel.length() > 0.1:  # Change 0.1 to a suitable threshold if needed
+            self.offset += self.offset_direction / 4
+            if self.offset > self.radius or self.offset < -self.radius:
+                self.offset_direction *= -1
+
+    def draw(self, screen):        
+        # Draw the ball
         pygame.draw.circle(screen, self.color, (int(self.pos.x), int(self.pos.y)), self.radius)
+        
+        if self.is_striped:
+            stripe_width = 5
+
+            # Calculate the effective radius and rotated stripe positions based on the offset
+            effective_radius = self.radius - abs(self.offset)
+            x1 = effective_radius * math.cos(self.angle)
+            y1 = effective_radius * math.sin(self.angle)
+            
+            # Calculate tangent point on the circle's perimeter
+            tangent_angle = math.asin(effective_radius / self.radius)
+            end_angle_1 = self.angle + tangent_angle
+            end_angle_2 = self.angle - tangent_angle
+
+            # Determine the end points of the stripe where it touches the circle's perimeter
+            end_x1 = self.pos.x + self.radius * math.cos(end_angle_1)
+            end_y1 = self.pos.y + self.radius * math.sin(end_angle_1)
+            end_x2 = self.pos.x + self.radius * math.cos(end_angle_2)
+            end_y2 = self.pos.y + self.radius * math.sin(end_angle_2)
+            
+            pygame.draw.line(screen, (255, 255, 255), (end_x1, end_y1), (end_x2, end_y2), stripe_width)
+
+            # Determine the position opposite to the stripe's center for the small circle
+            opposite_angle = self.angle + math.pi
+            circle_x = self.pos.x + effective_radius * math.cos(opposite_angle)
+            circle_y = self.pos.y + effective_radius * math.sin(opposite_angle)
+            
+            # Adjust the circle's radius based on its distance from the ball's center
+            max_circle_radius = stripe_width
+            circle_radius = max_circle_radius * (1 - (effective_radius / self.radius))
+
+            # Draw the small circle opposite to the stripe
+            pygame.draw.circle(screen, (255, 255, 255), (int(circle_x), int(circle_y)), int(circle_radius))
+
+        # Draw the outline
+        pygame.draw.circle(screen, (0, 0, 0), (int(self.pos.x), int(self.pos.y)), self.radius + 2, 2)
 
 class Hole:
     def __init__(self, pos):
@@ -135,20 +179,21 @@ class Turtle_Pool:
         self.m_values = np.cos(1.6 * self.n) + 2
         self.divisors = np.array([0.5, 2, -2, 3, 2, 3, -2, 3, 2, -3, 2, -3, 2, 3])
         self.a_values = np.cumsum(np.pi / self.divisors)
-        
+        self.current_table_points = []
         self.flip_x = False
         self.flip_y = False
         self.rotation_angle = 0
         self.p = 0.0
         self.direction = 1
         self.delta_p = 0.001
+        self.polygon_surface = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA)  # Ensure it supports transparency
 
         self.is_dragging = False
         self.drag_start = Vector2(0, 0)
         self.FRICTION = 0.98
         
         # Cue ball
-        self.cue_ball = Ball(Vector2(self.WIDTH / 2, self.HEIGHT - 100), (255, 255, 255))  # White color
+        self.cue_ball = Ball(Vector2(self.WIDTH / 2, self.HEIGHT - (self.HEIGHT //2 + 60)), (255, 255, 255))  # White color
 
         # Pool stick
         self.pool_stick = PoolStick()
@@ -166,15 +211,46 @@ class Turtle_Pool:
 
     def setup_balls(self):
         self.balls = [self.cue_ball]
-        colors = [(255, 0, 0), (0, 0, 255), (0, 255, 0), (255, 255, 0), (0, 255, 255), (255, 0, 255), (255, 165, 0)]
+        
+        # Defining solid and striped colors
+        solid_colors = [
+            (255, 255, 0),  # Yellow
+            (0, 0, 255),   # Blue
+            (255, 0, 0),   # Red
+            (128, 0, 128), # Purple
+            (255, 165, 0), # Orange
+            (0, 255, 0),   # Green
+            (128, 0, 0)    # Maroon
+        ]
+
         start_x, start_y = self.WIDTH / 2, self.HEIGHT / 2
         spacing = 22  # Spacing between balls
-        for row in range(1, 7):
+        
+        # Order of the balls in the rack
+        order = [
+            0, 
+            1, 2, 
+            4, 3, 5,
+            7, 6, 8, 9,
+            14, 13, 12, 10, 11
+        ]
+
+        idx = 0
+        ball_idx = 0
+        for row in range(1, 6):  # Adjusted range to account for 15 balls + 1 cue ball
             for col in range(row):
+                if order[ball_idx] == 8:  # For the black ball
+                    color = (0, 0, 0)
+                    is_striped = False
+                else:
+                    color = solid_colors[order[ball_idx] % 7]
+                    is_striped = order[ball_idx] >= 7
+
                 x = start_x + col * spacing - (row-1) * spacing / 2
                 y = start_y + (row-1) * spacing
-                color = colors[(row + col) % len(colors)]
-                self.balls.append(Ball(Vector2(x, y), color))
+                self.balls.append(Ball(Vector2(x, y), color, is_striped))
+                
+                ball_idx += 1
 
     def switch_player(self):
         self.current_player = 3 - self.current_player  # switches between 1 and 2
@@ -220,14 +296,21 @@ class Turtle_Pool:
         normalized_y = (y - y.min()) / (y.max() - y.min()) * (self.HEIGHT - 40) + 20
         
         points = list(zip(normalized_x, normalized_y))
+        self.current_table_points = points
         self.holes = self.generate_holes_from_points(points, 7)
-
+        
+        # Clear the polygon surface and redraw the polygon on it
+        self.polygon_surface.fill((0, 0, 0, 0))  # Clear with full transparency
+        pygame.draw.polygon(self.polygon_surface, (0, 255, 0, 255), points)  # Draw with white color
+        
         pygame.draw.polygon(self.screen, self.GREEN, points)
         self.draw_wooden_edge(self.screen, points)
 
         # Draw the holes
         for hole in self.holes:
             hole.draw(self.screen)
+
+        return points
             
     def draw_wooden_edge(self, screen, points):
         BORDER_WIDTH = 16  # Adjust as per preference
@@ -467,7 +550,10 @@ class Turtle_Pool:
         self.ball_was_moving = False
         self.player_scored = False
         while running:
-            try:
+
+                self.screen.fill(self.WHITE)
+                polygon_points = self.draw_polygon(self.p)
+
                 for event in pygame.event.get():
                     if event.type == QUIT:
                         running = False
@@ -477,12 +563,10 @@ class Turtle_Pool:
                         elif event.key == pygame.K_q:
                             self.flip_x = not self.flip_x
                         elif event.key == pygame.K_e:
-                            self.flip_y = not self.flip_y
-                    self.handle_ball_drag(event, self.cue_ball)
+                            self.flip_y = not self.flip_y                    
 
-                self.screen.fill(self.WHITE)
-                self.draw_polygon(self.p)
-                
+                self.handle_ball_drag(event, self.cue_ball)
+
                 for ball in self.balls:
                     self.move_ball(ball)
                     self.handle_ball_polygon_collision(ball)
@@ -521,11 +605,15 @@ class Turtle_Pool:
                     for ball2 in self.balls[i+1:]:
                         self.handle_ball_collision(ball1, ball2)
                     ball1.draw(self.screen)
-            
-                self.pool_stick.draw(self.screen)
+
+                try:
+                    self.pool_stick.draw(self.screen)
+                except:
+                    pass
                 self.draw_score()
                 pygame.display.flip()
 
+                pygame.display.update()
                 self.p += self.direction * self.delta_p
                 if self.p > 1:
                     self.p = 1
@@ -535,14 +623,10 @@ class Turtle_Pool:
                     self.direction = 1
 
                 self.clock.tick(60)
-            except Exception as e:
-                print(e)
-                pass
+
         pygame.quit()
 
 # Run the program
 if __name__ == '__main__':
     visualizer = Turtle_Pool()
     visualizer.run()
-    
-# End of the line, partner.
