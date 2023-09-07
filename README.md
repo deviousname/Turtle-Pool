@@ -12,3 +12,5 @@ todo:
 - main menu and settings pages
 - ai
 - online multiplayer
+
+https://raw.githubusercontent.com/deviousname/Turtle-Pool/main/2023-09-06%2023-05-16.mp4
