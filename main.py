@@ -2,6 +2,7 @@ import pygame
 from pygame.locals import QUIT, KEYDOWN
 import numpy as np
 from pygame.math import Vector2
+import pygame.gfxdraw
 
 class Ball:
     def __init__(self, pos, color):
@@ -25,7 +26,7 @@ class Hole:
     def __init__(self, pos):
         self.pos = Vector2(pos)
         self.radius = 12  # Slightly larger than a ball
-        self.color = (0, 0, 0)  # Black color for hole
+        self.color = (3, 4, 14)  # Dark color for the hole
 
     def draw(self, screen):
         pygame.draw.circle(screen, self.color, (int(self.pos.x), int(self.pos.y)), self.radius)
@@ -44,7 +45,73 @@ class PoolStick:
 
     def draw(self, screen):
         if self.is_visible:
-            pygame.draw.line(screen, (0, 0, 0), self.start_position, self.end_position, 3)  # Width 3 for the pool stick
+            # Calculate the direction and magnitude of the pool stick
+            direction = self.end_position - self.start_position
+            magnitude = direction.length()
+
+            # Calculate a normalized direction vector
+            direction.normalize_ip()
+
+            # Draw the pool stick with a tapered effect using polygons
+            thickness_tip = 3 
+            thickness_base = 10 
+
+            offset_base = direction.rotate(90) * (thickness_base / 2)
+            offset_tip = direction.rotate(90) * (thickness_tip / 2)
+
+            # Define the four corners of the polygon for the border
+            p1_border = self.end_position + offset_base + direction.rotate(90)
+            p2_border = self.end_position - offset_base - direction.rotate(90)
+            p3_border = self.start_position - offset_tip - direction.rotate(90)
+            p4_border = self.start_position + offset_tip + direction.rotate(90)
+            
+            # Draw the border first
+            border_color = (40, 40, 40)  # Slightly off black/brown
+            pygame.draw.polygon(screen, border_color, [p1_border, p2_border, p3_border, p4_border])
+            
+            # Define the four corners of the polygon
+            p1 = self.end_position + offset_base
+            p2 = self.end_position - offset_base
+            p3 = self.start_position - offset_tip
+            p4 = self.start_position + offset_tip
+
+            # Color gradients for the wood grain
+            base_color = (139, 69, 19)  # Brown
+            gradient_colors = [
+                (160, 82, 45),
+                (205, 133, 63),
+                (210, 105, 30)
+            ]
+
+            # Draw the main body of the stick with gradients
+            step = magnitude / len(gradient_colors)
+            for i, color in enumerate(gradient_colors):
+                start_frac = i / len(gradient_colors)
+                end_frac = (i + 1) / len(gradient_colors)
+
+                current_thickness_start = thickness_base * (1 - start_frac) + thickness_tip * start_frac
+                current_thickness_end = thickness_base * (1 - end_frac) + thickness_tip * end_frac
+
+                offset_start = direction.rotate(90) * (current_thickness_start / 2)
+                offset_end = direction.rotate(90) * (current_thickness_end / 2)
+
+                pygame.draw.polygon(screen, color, [
+                    self.end_position - direction * magnitude * start_frac + offset_start,  # Starting from end_position
+                    self.end_position - direction * magnitude * start_frac - offset_start,
+                    self.end_position - direction * magnitude * end_frac - offset_end,
+                    self.end_position - direction * magnitude * end_frac + offset_end
+                ])
+
+            # Draw the ferrule: a small circle slightly behind the tip
+            ferrule_offset = 5  # Adjust this to control the length of the ferrule
+            ferrule_position = self.start_position + direction * ferrule_offset
+            pygame.draw.circle(screen, (255, 255, 255), ferrule_position, 3.5)  # White color for the ferrule
+
+            # Draw the pool stick tip at the start_position
+            pygame.draw.circle(screen, (127, 127, 255), self.start_position, 3)
+
+            # Draw the butt of the pool stick at the end_position
+            pygame.draw.circle(screen, (40, 40, 40), self.end_position, thickness_base / 2)
 
 class Turtle_Pool:
     def __init__(self):
@@ -52,7 +119,7 @@ class Turtle_Pool:
         self.clock = pygame.time.Clock()
         
         # Constants
-        self.WIDTH, self.HEIGHT = 1024, 1024
+        self.WIDTH, self.HEIGHT = 768, 768
         self.WHITE = (255,255,255)
         self.GREEN = (0, 255, 0)
         
@@ -89,7 +156,7 @@ class Turtle_Pool:
         # Setup pool balls
         self.setup_balls()
 
-        # Create holes
+        # Create 6 holes
         self.holes = self.generate_holes(7)
         
     def init_game_state(self):
@@ -139,7 +206,7 @@ class Turtle_Pool:
         step = len(points) // num_holes
         return [Hole(Vector2(points[i % len(points)])) for i in range(0, len(points), step)]
 
-    def draw_polygon(self, p=0.5):
+    def draw_polygon(self, p=0.5): # draws the pool table, p is the transformation normal
         x, y = self.f(p)
         
         for i in range(len(x)):
@@ -156,16 +223,93 @@ class Turtle_Pool:
         self.holes = self.generate_holes_from_points(points, 7)
 
         pygame.draw.polygon(self.screen, self.GREEN, points)
-        pygame.draw.lines(self.screen, (0, 0, 0), closed=True, points=points, width=3)
+        self.draw_wooden_edge(self.screen, points)
 
         # Draw the holes
         for hole in self.holes:
             hole.draw(self.screen)
-        
-    def generate_holes_from_points(self, points, num_holes):
-        step = len(points) // num_holes
-        return [Hole(Vector2(points[i % len(points)])) for i in range(0, len(points), step)]
             
+    def draw_wooden_edge(self, screen, points):
+        BORDER_WIDTH = 16  # Adjust as per preference
+        border_color = (42, 42, 42)  # Slightly off black/brown
+
+        # Draw the base border
+        pygame.draw.lines(screen, border_color, closed=True, points=points, width=BORDER_WIDTH)
+
+        # Color gradients for the wood grain
+        gradient_colors = [
+            (160, 82, 45),
+            (205, 133, 63),
+            (210, 105, 30)
+        ]
+
+        # Draw each segment with gradient colors
+        for i in range(len(points)):
+            start_point = pygame.Vector2(points[i])
+            end_point = pygame.Vector2(points[(i + 1) % len(points)])  # Loop back to the start for the last segment
+
+            for color in gradient_colors:
+                pygame.draw.line(screen, color, start_point, end_point, BORDER_WIDTH - 1)  # Adjust width to fit within the base border
+
+                # Draw rounded ends using a pie slice (arc)
+                angle_to_end = int(start_point.angle_to(end_point))
+                pygame.gfxdraw.pie(screen, int(start_point.x), int(start_point.y), (BORDER_WIDTH - 1) // 2, angle_to_end - 90, angle_to_end + 90, color)
+                pygame.gfxdraw.pie(screen, int(end_point.x), int(end_point.y), (BORDER_WIDTH - 1) // 2, angle_to_end + 90, angle_to_end - 90, color)
+
+                # Fill in the gaps at the corners
+                pygame.gfxdraw.filled_circle(screen, int(start_point.x), int(start_point.y), (BORDER_WIDTH - 1) // 2, color)
+                pygame.gfxdraw.filled_circle(screen, int(end_point.x), int(end_point.y), (BORDER_WIDTH - 1) // 2, color)
+
+    def generate_holes_from_points(self, points, num_holes, offset = 12):
+        step = len(points) // num_holes
+        holes = []
+
+        for i in range(0, len(points), step):
+            # Current vertex for the hole
+            current_vertex = Vector2(points[i % len(points)])
+            
+            # Previous and next vertices
+            prev_vertex = Vector2(points[(i - 1) % len(points)])
+            next_vertex = Vector2(points[(i + 1) % len(points)])
+            
+            # Calculate the vectors pointing from the current vertex to its adjacent vertices
+            vec_to_prev = prev_vertex - current_vertex
+            vec_to_next = next_vertex - current_vertex
+            
+            # Normalize these vectors
+            vec_to_prev.normalize_ip()
+            vec_to_next.normalize_ip()
+            
+            # Calculate the mid-angle direction (it's the normalized sum of the two vectors)
+            mid_angle_dir = (vec_to_prev + vec_to_next).normalize()
+
+            # Offset the hole by 12 pixels in the mid-angle direction
+            hole_position = current_vertex + mid_angle_dir * offset
+
+            # If the hole is outside the polygon, invert its offset
+            if not self.is_point_inside_polygon(hole_position, points):
+                hole_position = current_vertex - mid_angle_dir * offset  # Invert offset
+            
+            holes.append(Hole(hole_position))
+
+        return holes
+    
+    def is_point_inside_polygon(self, point, polygon):
+        """Check if point is inside the polygon using the ray-casting algorithm."""
+        x, y = point
+        odd_nodes = False
+        j = len(polygon) - 1  # The last vertex is the previous one to the first
+
+        for i in range(len(polygon)):
+            xi, yi = polygon[i]
+            xj, yj = polygon[j]
+            if yi < y and yj >= y or yj < y and yi >= y:
+                if xi + (y - yi) / (yj - yi) * (xj - xi) < x:
+                    odd_nodes = not odd_nodes
+            j = i
+
+        return odd_nodes
+
     def rotate_point(self, x, y, angle, center_x, center_y):
         s, c = np.sin(angle), np.cos(angle)
         x, y = x - center_x, y - center_y
@@ -297,8 +441,8 @@ class Turtle_Pool:
         if self.current_player == 1:
             font1 = pygame.font.SysFont(None, 50)
             font2 = pygame.font.SysFont(None, 36)
-            color1 = (255, 0, 0)  # Red for inactive player
-            color2 = (0, 0, 255)  # Blue for active player
+            color1 = (255, 0, 0)  # Red for active player
+            color2 = (0, 0, 255)  # Blue for inactive player
             self.screen.blit(font1.render(f'Player 1: {self.score_player1}', True, color1), (self.WIDTH - 250, 10))
             self.screen.blit(font2.render(f'Player 2: {self.score_player2}', True, color2), (self.WIDTH - 230, 60))
         else:
@@ -309,81 +453,96 @@ class Turtle_Pool:
             self.screen.blit(font1.render(f'Player 1: {self.score_player1}', True, color1), (self.WIDTH - 230, 60))
             self.screen.blit(font2.render(f'Player 2: {self.score_player2}', True, color2), (self.WIDTH - 250, 10))
 
+        # Display the value of self.p on the bottom right corner
+        p_font = pygame.font.SysFont(None, 36)
+        p_color = (0, 255, 0)
+        p_text = f"P = {str(int(self.p*100)/100).replace('.', '.')}"
+        p_text_surface = p_font.render(p_text, True, p_color)
+        # Position the text to start at the bottom right corner. Adjust the -10 for fine-tuning the vertical position.
+        p_position = (self.WIDTH - (self.WIDTH//7), self.HEIGHT - p_text_surface.get_height() -  (self.WIDTH//32))
+        self.screen.blit(p_text_surface, p_position)
+
     def run(self):
         running = True
         self.ball_was_moving = False
         self.player_scored = False
         while running:
-            for event in pygame.event.get():
-                if event.type == QUIT:
-                    running = False
-                elif event.type == KEYDOWN:
-                    if event.key == pygame.K_r:
-                        self.rotation_angle += np.pi / 6
-                    elif event.key == pygame.K_q:
-                        self.flip_x = not self.flip_x
-                    elif event.key == pygame.K_e:
-                        self.flip_y = not self.flip_y
-                self.handle_ball_drag(event, self.cue_ball)
+            try:
+                for event in pygame.event.get():
+                    if event.type == QUIT:
+                        running = False
+                    elif event.type == KEYDOWN:
+                        if event.key == pygame.K_r:
+                            self.rotation_angle += np.pi / 6
+                        elif event.key == pygame.K_q:
+                            self.flip_x = not self.flip_x
+                        elif event.key == pygame.K_e:
+                            self.flip_y = not self.flip_y
+                    self.handle_ball_drag(event, self.cue_ball)
 
-            self.screen.fill(self.WHITE)
-            self.draw_polygon(self.p)
-            
-            for ball in self.balls:
-                self.move_ball(ball)
-                self.handle_ball_polygon_collision(ball)
-                self.handle_ball_polygon_overlap(ball)  # Check and handle ball overlap with polygon
-                for hole in self.holes:
-                    if ball.pos.distance_to(hole.pos) < hole.radius:
-                        self.balls.remove(ball)
-                        if ball == self.cue_ball:  # If cue ball goes into the hole
-                            ball.pos = self.get_free_position()
-                            ball.vel = Vector2(0, 0)
-                            self.balls.append(ball)  # Add back the cue ball
-                        elif self.current_player == 1:
-                            self.score_player1 += 1  # Opponent gets the point
+                self.screen.fill(self.WHITE)
+                self.draw_polygon(self.p)
+                
+                for ball in self.balls:
+                    self.move_ball(ball)
+                    self.handle_ball_polygon_collision(ball)
+                    self.handle_ball_polygon_overlap(ball)  # Check and handle ball overlap with polygon
+                    for hole in self.holes:
+                        if ball.pos.distance_to(hole.pos) < hole.radius:
+                            self.balls.remove(ball)
+                            if ball == self.cue_ball:  # If cue ball goes into the hole
+                                ball.pos = self.get_free_position()
+                                ball.vel = Vector2(0, 0)
+                                self.balls.append(ball)  # Add back the cue ball
+                            elif self.current_player == 1:
+                                self.score_player1 += 1  # Opponent gets the point
+                            else:
+                                self.score_player2 += 1
+                            self.player_scored = True  # Set the flag when a player scores
+
+                # Check if all balls have stopped moving
+                all_balls_stopped = all(ball.vel == Vector2(0, 0) for ball in self.balls)
+
+                if all_balls_stopped and self.ball_was_moving:  
+                    if not self.player_scored:  # Only switch players if the current player did not score
+                        if self.current_player == 1:
+                            self.current_player = 2
                         else:
-                            self.score_player2 += 1
-                        self.player_scored = True  # Set the flag when a player scores
+                            self.current_player = 1
+                    self.player_scored = False  # Reset the flag for the next turn
 
-            # Check if all balls have stopped moving
-            all_balls_stopped = all(ball.vel == Vector2(0, 0) for ball in self.balls)
+                # Update the ball_was_moving flag for the next frame
+                self.ball_was_moving = not all_balls_stopped
+        
+                for hole in self.holes:
+                    hole.draw(self.screen)
+                    
+                for i, ball1 in enumerate(self.balls):
+                    for ball2 in self.balls[i+1:]:
+                        self.handle_ball_collision(ball1, ball2)
+                    ball1.draw(self.screen)
+            
+                self.pool_stick.draw(self.screen)
+                self.draw_score()
+                pygame.display.flip()
 
-            if all_balls_stopped and self.ball_was_moving:  
-                if not self.player_scored:  # Only switch players if the current player did not score
-                    if self.current_player == 1:
-                        self.current_player = 2
-                    else:
-                        self.current_player = 1
-                self.player_scored = False  # Reset the flag for the next turn
+                self.p += self.direction * self.delta_p
+                if self.p > 1:
+                    self.p = 1
+                    self.direction = -1
+                elif self.p < 0:
+                    self.p = 0
+                    self.direction = 1
 
-            # Update the ball_was_moving flag for the next frame
-            self.ball_was_moving = not all_balls_stopped
-    
-            for hole in self.holes:
-                hole.draw(self.screen)
-                
-            for i, ball1 in enumerate(self.balls):
-                for ball2 in self.balls[i+1:]:
-                    self.handle_ball_collision(ball1, ball2)
-                ball1.draw(self.screen)
-                
-            self.pool_stick.draw(self.screen)
-            self.draw_score()
-            pygame.display.flip()
-
-            self.p += self.direction * self.delta_p
-            if self.p > 1:
-                self.p = 1
-                self.direction = -1
-            elif self.p < 0:
-                self.p = 0
-                self.direction = 1
-
-            self.clock.tick(60)
+                self.clock.tick(60)
+            except Exception as e:
+                print(e)
+                pass
         pygame.quit()
 
 # Run the program
 if __name__ == '__main__':
     visualizer = Turtle_Pool()
     visualizer.run()
+    
+# End of the line, partner.
