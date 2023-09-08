@@ -1,6 +1,6 @@
 # Turtle-Pool
 Aperiodic Pool
-# Looking for people to help make this better by branching the code and improving it.
+
 todo:
 - adjust the holes for better balance (done)
 - translate the ball positions when rotation key is press (buggy but works)
@@ -12,3 +12,6 @@ todo:
 - main menu and settings pages (press esc to rerack and manually change player so far)
 - ai (none yet)
 - online multiplayer (none yet)
+
+Looking for people to help make this better by branching the code and improving it.
+(I can't pay nothing, just want to see this grow.)
