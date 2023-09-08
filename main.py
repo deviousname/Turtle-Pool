@@ -282,36 +282,6 @@ class Turtle_Pool:
         points = list(zip(*self.get_polygon_points(0.5)))  # Mid points
         step = len(points) // num_holes
         return [Hole(Vector2(points[i % len(points)])) for i in range(0, len(points), step)]
-
-    def draw_polygon(self, p=0.5): # draws the pool table, p is the transformation normal
-        x, y = self.f(p)
-        
-        for i in range(len(x)):
-            if self.flip_x:
-                x[i] = -x[i]
-            if self.flip_y:
-                y[i] = -y[i]
-            x[i], y[i] = self.rotate_point(x[i], y[i], self.rotation_angle, 0, 0)
-        
-        normalized_x = (x - x.min()) / (x.max() - x.min()) * (self.WIDTH - 40) + 20
-        normalized_y = (y - y.min()) / (y.max() - y.min()) * (self.HEIGHT - 40) + 20
-        
-        points = list(zip(normalized_x, normalized_y))
-        self.current_table_points = points
-        self.holes = self.generate_holes_from_points(points, 7)
-        
-        # Clear the polygon surface and redraw the polygon on it
-        self.polygon_surface.fill((0, 0, 0, 0))  # Clear with full transparency
-        pygame.draw.polygon(self.polygon_surface, (0, 255, 0, 255), points)  # Draw with white color
-        
-        pygame.draw.polygon(self.screen, self.GREEN, points)
-        self.draw_wooden_edge(self.screen, points)
-
-        # Draw the holes
-        for hole in self.holes:
-            hole.draw(self.screen)
-
-        return points
             
     def draw_wooden_edge(self, screen, points):
         BORDER_WIDTH = 16  # Adjust as per preference
@@ -393,6 +363,20 @@ class Turtle_Pool:
             j = i
 
         return odd_nodes
+    
+    def point_inside_polygon(self, x, y, polygon):
+        n = len(polygon)
+        oddNodes = False
+        j = n - 1
+
+        for i in range(n):
+            xi, yi = polygon[i]
+            xj, yj = polygon[j]
+            if yi < y and yj >= y or yj < y and yi >= y:
+                if xi + (y - yi) / (yj - yi) * (xj - xi) < x:
+                    oddNodes = not oddNodes
+            j = i
+        return oddNodes
 
     def rotate_point(self, x, y, angle, center_x, center_y):
         s, c = np.sin(angle), np.cos(angle)
@@ -405,7 +389,37 @@ class Turtle_Pool:
         x_coords = np.cumsum((1-p + p*self.m_values) * np.cos(self.a_values))
         y_coords = np.cumsum((1-p + p*self.m_values) * np.sin(self.a_values))
         return x_coords, y_coords
+    
+    def draw_polygon(self, p=0.5): # draws the pool table, p is the transformation normal
+        x, y = self.f(p)
+        
+        for i in range(len(x)):
+            if self.flip_x:
+                x[i] = -x[i]
+            if self.flip_y:
+                y[i] = -y[i]
+            x[i], y[i] = self.rotate_point(x[i], y[i], self.rotation_angle, 0, 0)
+        
+        normalized_x = (x - x.min()) / (x.max() - x.min()) * (self.WIDTH - 40) + 20
+        normalized_y = (y - y.min()) / (y.max() - y.min()) * (self.HEIGHT - 40) + 20
+        
+        points = list(zip(normalized_x, normalized_y))
+        self.current_table_points = points
+        self.holes = self.generate_holes_from_points(points, 7)
+        
+        # Clear the polygon surface and redraw the polygon on it
+        self.polygon_surface.fill((0, 0, 0, 0))  # Clear with full transparency
+        pygame.draw.polygon(self.polygon_surface, (0, 255, 0, 255), points)  # Draw with white color
+        
+        pygame.draw.polygon(self.screen, self.GREEN, points)
+        self.draw_wooden_edge(self.screen, points)
 
+        # Draw the holes
+        for hole in self.holes:
+            hole.draw(self.screen)
+
+        return points
+    
     def draw_ball(self):
         pygame.draw.circle(self.screen, self.WHITE, (int(self.ball_pos.x), int(self.ball_pos.y)), self.ball_radius)
             
@@ -607,6 +621,34 @@ class Turtle_Pool:
 
             elif self.is_dragging:  # When dragging, constantly update pool stick's position
                 self.pool_stick.set_end_position(Vector2(event.pos))
+                
+    def get_polygon_centroid(self, polygon):
+        centroid = Vector2(0, 0)
+        n = len(polygon)
+        for point in polygon:
+            centroid.x += point[0]
+            centroid.y += point[1]
+        centroid.x /= n
+        centroid.y /= n
+        return centroid
+    
+    def adjust_balls_after_rotation(self):
+        # Calculate the centroid of the current table
+        table_centroid = self.get_polygon_centroid(self.current_table_points)
+        
+        # Rotate ball positions and check their positions
+        for ball in self.balls:
+            ball.pos.x, ball.pos.y = self.rotate_point(ball.pos.x, ball.pos.y, np.pi / 6, self.WIDTH / 2, self.HEIGHT / 2)
+            
+            # If ball is outside table, adjust its position
+            while not self.point_inside_polygon(ball.pos.x, ball.pos.y, self.current_table_points):
+                # Move ball towards the centroid of the table
+                direction_to_centroid = table_centroid - ball.pos
+                direction_to_centroid = direction_to_centroid.normalize()  # Get unit vector towards centroid
+                ball.pos += direction_to_centroid  # Move ball slightly towards the centroid
+            
+            # Rotate ball velocities to adjust trajectories
+            ball.vel.x, ball.vel.y = self.rotate_point(ball.vel.x, ball.vel.y, np.pi / 6, 0, 0)
             
     def run(self):
         running = True
@@ -626,6 +668,7 @@ class Turtle_Pool:
                     elif event.type == KEYDOWN:
                         if event.key == pygame.K_r:
                             self.rotation_angle += np.pi / 6
+                            self.adjust_balls_after_rotation()
                         elif event.key == pygame.K_q:
                             self.flip_x = not self.flip_x
                         elif event.key == pygame.K_e:
@@ -681,6 +724,7 @@ class Turtle_Pool:
                     self.pool_stick.draw(self.screen)
                 except:
                     pass
+                
                 self.draw_score()
                 pygame.display.flip()
 
