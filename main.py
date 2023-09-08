@@ -187,7 +187,7 @@ class Turtle_Pool:
         self.direction = 1
         self.delta_p = 0.001
         self.polygon_surface = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA)  # Ensure it supports transparency
-
+        self.last_click_time = 0
         self.is_dragging = False
         self.drag_start = Vector2(0, 0)
         self.FRICTION = 0.98
@@ -201,7 +201,7 @@ class Turtle_Pool:
         # Setup pool balls
         self.setup_balls()
 
-        # Create 6 holes
+        # Create 7 holes
         self.holes = self.generate_holes(7)
         
     def init_game_state(self):
@@ -210,6 +210,7 @@ class Turtle_Pool:
         self.score_player2 = 0
 
     def setup_balls(self):
+        self.init_game_state()
         self.balls = [self.cue_ball]
         
         # Defining solid and striped colors
@@ -407,34 +408,6 @@ class Turtle_Pool:
 
     def draw_ball(self):
         pygame.draw.circle(self.screen, self.WHITE, (int(self.ball_pos.x), int(self.ball_pos.y)), self.ball_radius)
-
-    def handle_ball_drag(self, event, ball):
-        all_balls_stopped = all(ball.vel == Vector2(0, 0) for ball in self.balls)
-
-        if not all_balls_stopped:
-            # Exit this function immediately if any ball is moving.
-            return 
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if ball.pos.distance_to(Vector2(event.pos)) <= ball.radius:
-                self.is_dragging = True
-                self.drag_start = Vector2(event.pos)
-                self.pool_stick.set_start_position(ball.pos)
-                self.pool_stick.set_end_position(self.drag_start)
-                self.pool_stick.is_visible = True
-
-        elif event.type == pygame.MOUSEBUTTONUP and event.button == 3:  # Right click
-            self.cue_ball.pos = Vector2(event.pos)
-
-        elif event.type == pygame.MOUSEBUTTONUP or (event.type == pygame.ACTIVEEVENT and not event.gain and self.is_dragging):
-            # The additional condition checks if the window lost focus while dragging
-            if self.is_dragging:
-                drag_end = Vector2(pygame.mouse.get_pos())  # Use the current mouse position instead
-                ball.vel = (self.drag_start - drag_end) * 0.1  # Adjust this for different shot power
-                self.pool_stick.is_visible = False
-                self.is_dragging = False
-
-        elif self.is_dragging:  # When dragging, constantly update pool stick's position
-            self.pool_stick.set_end_position(Vector2(event.pos))
             
     def move_ball(self, ball):
         ball.move()
@@ -544,15 +517,108 @@ class Turtle_Pool:
         # Position the text to start at the bottom right corner. Adjust the -10 for fine-tuning the vertical position.
         p_position = (self.WIDTH - (self.WIDTH//7), self.HEIGHT - p_text_surface.get_height() -  (self.WIDTH//32))
         self.screen.blit(p_text_surface, p_position)
+        
+        if self.display_menu:  
+            # Re-Rack button
+            rerack_font = pygame.font.SysFont(None, 40)
+            rerack_color = (255, 255, 255)  # White color for the text
+            rerack_bg = (50, 50, 50)  # Dark grey color for the button background
+            rerack_text = rerack_font.render('Re-Rack', True, rerack_color)
+            rerack_text_width, rerack_text_height = rerack_text.get_size()
+            
+            # Button dimensions
+            button_width = rerack_text_width + 20
+            button_height = rerack_text_height + 10
+            button_x = (self.WIDTH - button_width) // 2
+            button_y = 10
+            
+            # Draw button background
+            pygame.draw.rect(self.screen, rerack_bg, (button_x, button_y, button_width, button_height))
+            # Draw the text on the button
+            self.screen.blit(rerack_text, (button_x + 10, button_y + 5))
 
+            # Check if the button is clicked
+            mouse = pygame.mouse.get_pos()
+            click = pygame.mouse.get_pressed()
+            if button_x <= mouse[0] <= button_x + button_width and button_y <= mouse[1] <= button_y + button_height:
+                if click[0]:  # If left mouse button is pressed
+                    self.setup_balls()
+              
+            # End-Turn button
+            endturn_font = pygame.font.SysFont(None, 40)
+            endturn_color = (255, 255, 255)  # White color for the text
+            endturn_bg = (50, 50, 50)  # Dark grey color for the button background
+            endturn_text = endturn_font.render('Change-Player', True, endturn_color)
+            endturn_text_width, endturn_text_height = endturn_text.get_size()
+            
+            # Button dimensions (positioned below Re-Rack button)
+            button_width_endturn = endturn_text_width + 20
+            button_height_endturn = endturn_text_height + 10
+            button_x_endturn = (self.WIDTH - button_width_endturn) // 2
+            button_y_endturn = button_y + button_height + 10  # 10 pixels below the Re-Rack button
+            
+            # Draw button background
+            pygame.draw.rect(self.screen, endturn_bg, (button_x_endturn, button_y_endturn, button_width_endturn, button_height_endturn))
+            # Draw the text on the button
+            self.screen.blit(endturn_text, (button_x_endturn + 10, button_y_endturn + 5))
+
+            # Check if the End-Turn button is clicked
+            mouse = pygame.mouse.get_pos()
+            click = pygame.mouse.get_pressed()
+            # Get current time
+            current_time = pygame.time.get_ticks()
+
+            # Check if the Re-Rack button is clicked
+            if button_x <= mouse[0] <= button_x + button_width and button_y <= mouse[1] <= button_y + button_height:
+                if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
+                    self.setup_balls()
+                    self.last_click_time = current_time
+
+            # Check if the End-Turn button is clicked
+            if button_x_endturn <= mouse[0] <= button_x_endturn + button_width_endturn and button_y_endturn <= mouse[1] <= button_y_endturn + button_height_endturn:
+                if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
+                    if self.current_player == 1:
+                        self.current_player = 2
+                    else:
+                        self.current_player = 1
+                    self.last_click_time = current_time
+                    
+    def handle_ball_drag(self, event, ball):
+        all_balls_stopped = all(ball.vel == Vector2(0, 0) for ball in self.balls)
+        if self.player_shots > 0:            
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if ball.pos.distance_to(Vector2(event.pos)) <= ball.radius:
+                    self.is_dragging = True
+                    self.drag_start = Vector2(event.pos)
+                    self.pool_stick.set_start_position(ball.pos)
+                    self.pool_stick.set_end_position(self.drag_start)
+                    self.pool_stick.is_visible = True
+
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 3:  # Right click
+                self.cue_ball.pos = Vector2(event.pos)
+
+            elif event.type == pygame.MOUSEBUTTONUP or (event.type == pygame.ACTIVEEVENT and not event.gain and self.is_dragging):
+                # The additional condition checks if the window lost focus while dragging
+                if self.is_dragging:
+                    drag_end = Vector2(pygame.mouse.get_pos())  # Use the current mouse position instead
+                    ball.vel = (self.drag_start - drag_end) * 0.1  # Adjust this for different shot power
+                    self.pool_stick.is_visible = False
+                    self.is_dragging = False
+
+            elif self.is_dragging:  # When dragging, constantly update pool stick's position
+                self.pool_stick.set_end_position(Vector2(event.pos))
+            
     def run(self):
         running = True
         self.ball_was_moving = False
         self.player_scored = False
+        self.display_menu = False
+        self.mouse_button_up  = False
+        self.player_shots = 3 # need to do something with this still
         while running:
-
-                self.screen.fill(self.WHITE)
-                polygon_points = self.draw_polygon(self.p)
+            try:
+                self.screen.fill(self.WHITE) # fill the background whatever color
+                polygon_points = self.draw_polygon(self.p) # draw the board
 
                 for event in pygame.event.get():
                     if event.type == QUIT:
@@ -563,8 +629,13 @@ class Turtle_Pool:
                         elif event.key == pygame.K_q:
                             self.flip_x = not self.flip_x
                         elif event.key == pygame.K_e:
-                            self.flip_y = not self.flip_y                    
-
+                            self.flip_y = not self.flip_y
+                        elif event.key == pygame.K_ESCAPE:
+                            self.display_menu = not self.display_menu
+                    if event.type == MOUSEBUTTONDOWN:
+                        self.mouse_button_up  = True
+                    elif event.type == MOUSEBUTTONUP:
+                        self.mouse_button_up  = False
                 self.handle_ball_drag(event, self.cue_ball)
 
                 for ball in self.balls:
@@ -623,7 +694,8 @@ class Turtle_Pool:
                     self.direction = 1
 
                 self.clock.tick(60)
-
+            except:
+                pass
         pygame.quit()
 
 # Run the program
