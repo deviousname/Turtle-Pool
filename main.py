@@ -1,8 +1,9 @@
-import pygame, math
+import pygame, math, time
 from pygame.locals import QUIT, KEYDOWN, MOUSEBUTTONDOWN
 import numpy as np
 from pygame.math import Vector2
 import pygame.gfxdraw
+import mido, threading
 
 class Ball:
     def __init__(self, pos, color, is_striped=False):
@@ -203,7 +204,10 @@ class Turtle_Pool:
 
         # Create 7 holes
         self.holes = self.generate_holes(7)
-        
+
+        # Start sound engine
+        self.midi_instrument = MidiInstrument()
+
     def init_game_state(self):
         self.current_player = 1
         self.score_player1 = 0
@@ -477,11 +481,13 @@ class Turtle_Pool:
                 # Ensure the ball is outside of the segment after reflection.
                 while self.collides_with_segment(ball.pos, ball.radius, segment_start, segment_end):
                     ball.pos += segment_normal
+                return True
 
     def handle_ball_collision(self, ball1, ball2):
         # Check for collision between two balls
         distance = ball1.pos.distance_to(ball2.pos)
         if distance < ball1.radius + ball2.radius:
+            
             # Push the balls out of each other to avoid overlap
             overlap = (ball1.radius + ball2.radius) - distance
             direction = (ball1.pos - ball2.pos).normalize()
@@ -505,6 +511,7 @@ class Turtle_Pool:
             # Update the velocities using the new normal velocities and the unchanged tangent velocities
             ball1.vel = v1n_new * normal + v1t * tangent
             ball2.vel = v2n_new * normal + v2t * tangent
+            return True
 
     def draw_score(self):
         # Adjusting font size
@@ -573,12 +580,14 @@ class Turtle_Pool:
             
             # Draw button background
             pygame.draw.rect(self.screen, endturn_bg, (button_x_endturn, button_y_endturn, button_width_endturn, button_height_endturn))
+
             # Draw the text on the button
             self.screen.blit(endturn_text, (button_x_endturn + 10, button_y_endturn + 5))
 
             # Check if the End-Turn button is clicked
             mouse = pygame.mouse.get_pos()
             click = pygame.mouse.get_pressed()
+
             # Get current time
             current_time = pygame.time.get_ticks()
 
@@ -595,6 +604,39 @@ class Turtle_Pool:
                         self.current_player = 2
                     else:
                         self.current_player = 1
+                    self.last_click_time = current_time
+
+            # Instrument-Change button
+            instr_font = pygame.font.SysFont(None, 40)
+            instr_color = (255, 255, 255)  # White color for the text
+            instr_bg = (50, 50, 50)  # Dark grey color for the button background
+            
+            instr_name = GM_INSTRUMENTS[self.midi_instrument.instrument]
+            instr_text = instr_font.render('< {} >'.format(instr_name), True, instr_color)
+            instr_text_width, instr_text_height = instr_text.get_size()
+            
+            # Button dimensions (positioned below Change-Player button)
+            button_width_instr = instr_text_width + 20
+            button_height_instr = instr_text_height + 10
+            button_x_instr = (self.WIDTH - button_width_instr) // 2
+            button_y_instr = button_y_endturn + button_height_endturn + 10  # 10 pixels below the Change-Player button
+            
+            # Draw button background
+            pygame.draw.rect(self.screen, instr_bg, (button_x_instr, button_y_instr, button_width_instr, button_height_instr))
+            
+            # Draw the text on the button
+            self.screen.blit(instr_text, (button_x_instr + 10, button_y_instr + 5))
+            
+            # Check if the Instrument Up button is clicked
+            if button_x_instr <= mouse[0] <= button_x_instr + instr_text_width // 3 and button_y_instr <= mouse[1] <= button_y_instr + button_height_instr:
+                if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
+                    self.midi_instrument.instrument_down()
+                    self.last_click_time = current_time
+
+            # Check if the Instrument Down button is clicked
+            if button_x_instr + 2 * instr_text_width // 3 <= mouse[0] <= button_x_instr + button_width_instr and button_y_instr <= mouse[1] <= button_y_instr + button_height_instr:
+                if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
+                    self.midi_instrument.instrument_up()
                     self.last_click_time = current_time
                     
     def handle_ball_drag(self, event, ball):
@@ -666,7 +708,15 @@ class Turtle_Pool:
                     if event.type == QUIT:
                         running = False
                     elif event.type == KEYDOWN:
-                        if event.key == pygame.K_r:
+                        if event.key == pygame.K_UP:
+                            self.midi_instrument.note_up()
+                        elif event.key == pygame.K_DOWN:
+                            self.midi_instrument.note_down()
+                        elif event.key == pygame.K_LEFT:
+                            self.midi_instrument.instrument_down()
+                        elif event.key == pygame.K_RIGHT:
+                            self.midi_instrument.instrument_up()
+                        elif event.key == pygame.K_r:
                             self.rotation_angle += np.pi / 6
                             self.adjust_balls_after_rotation()
                         elif event.key == pygame.K_q:
@@ -681,9 +731,10 @@ class Turtle_Pool:
                         self.mouse_button_up  = False
                 self.handle_ball_drag(event, self.cue_ball)
 
+                # When a collision occurs:
                 for ball in self.balls:
                     self.move_ball(ball)
-                    self.handle_ball_polygon_collision(ball)
+                    self.handle_ball_polygon_collision(ball)  # wall collide
                     self.handle_ball_polygon_overlap(ball)  # Check and handle ball overlap with polygon
                     for hole in self.holes:
                         if ball.pos.distance_to(hole.pos) < hole.radius:
@@ -717,7 +768,10 @@ class Turtle_Pool:
                     
                 for i, ball1 in enumerate(self.balls):
                     for ball2 in self.balls[i+1:]:
-                        self.handle_ball_collision(ball1, ball2)
+                        if self.handle_ball_collision(ball1, ball2):
+                            average_velocity = (ball1.vel + ball2.vel) / 2  # Compute the average velocity
+                            midi_note = self.get_midi_note_from_velocity(average_velocity)
+                            self.midi_instrument.play_collision_sound(midi_note)  # Play the note based on average velocity
                     ball1.draw(self.screen)
 
                 try:
@@ -741,8 +795,125 @@ class Turtle_Pool:
             except:
                 pass
         pygame.quit()
+        
+    def get_midi_note_from_velocity(self, velocity, max_velocity=127, midpoint=25, scale_factor=3):  
+        # The scale_factor controls the sensitivity around the midpoint
+        midpoint_normalized = midpoint / 127.0
+        x = (velocity.magnitude() / max_velocity) - midpoint_normalized
+        y = np.tanh(x * scale_factor)
+        midi_note = int((y + 1) / 2 * 127)
+        return midi_note
 
+class MidiInstrument:
+    # Sound effect engine using mido's midi capabilities along with threading.
+    def __init__(self):
+        # Initialize your midi port here
+        self.outport = mido.open_output()  # Use your MIDI port details here
+        self.current_notes = {}
+        self.instrument = 96
+        self.current_note = 64  # Starting with Middle C
+        self.change_instrument(self.instrument)
+        self.note_lock = threading.Lock()
+        
+    def change_instrument(self, instrument):
+        # Creates a 'program_change' MIDI message that changes the instrument.
+        program_change = mido.Message('program_change', program=instrument)
+        # Sends the 'program_change' MIDI message to the output port.
+        self.outport.send(program_change)
+        # Prints a statement indicating that the instrument has been changed.
+        #print(f"Changed instrument to {GM_INSTRUMENTS[instrument], self.instrument}")
+
+    def instrument_up(self):
+        # Increases the instrument number by 1, but wraps around to 0 if the current instrument is the last one.
+        self.instrument = (self.instrument + 1) % 128
+        # Changes to the newly selected instrument.
+        threading.Thread(target=self.change_instrument, args=(self.instrument,)).start()
+
+    def instrument_down(self):
+        # Decreases the instrument number by 1, but wraps around to the last instrument if the current instrument is the first one.
+        self.instrument = (self.instrument - 1) % 128
+        # Changes to the newly selected instrument.
+        threading.Thread(target=self.change_instrument, args=(self.instrument,)).start()
+
+    def note_on(self, original_note, shifted_note): 
+        if original_note not in self.current_notes:
+            note_on = mido.Message('note_on', note=shifted_note)
+            self.outport.send(note_on)
+            self.current_notes[original_note] = True
+
+    def note_off(self, original_note, shifted_note):
+        with self.note_lock:
+            if original_note in self.current_notes:
+                note_off_msg = mido.Message('note_off', note=shifted_note)
+                self.outport.send(note_off_msg)
+                del self.current_notes[original_note]
+                
+    def stop_sound(self, midi_note):
+        shifted_note = (midi_note + 12) % 128
+        self.note_off(midi_note, shifted_note)
+
+    def note_up(self):
+        # Increase the current note value
+        if self.current_note < 127:  # 127 is the highest valid MIDI note value
+            self.current_note += 1
+
+    def note_down(self):
+        # Decrease the current note value
+        if self.current_note > 0:  # 0 is the lowest valid MIDI note value
+            self.current_note -= 1
+
+    def play_collision_sound(self, midi_note):
+        # Start the sound effect in a new thread, passing the midi_note as an argument
+        threading.Thread(target=self._play_collision_sound_thread, args=(midi_note,)).start()
+
+    def _play_collision_sound_thread(self, midi_note):
+        shifted_note = (midi_note + 12) % 128  # Increase by an octave for the sound effect
+        self.note_on(midi_note, shifted_note)
+        time.sleep(0.0625)
+        self.note_off(midi_note, shifted_note)
+        
+GM_INSTRUMENTS = {
+    0: 'Acoustic Grand Piano', 1: 'Bright Acoustic Piano', 2: 'Electric Grand Piano', 
+    3: 'Honky-tonk Piano', 4: 'Electric Piano 1', 5: 'Electric Piano 2',
+    6: 'Harpsichord', 7: 'Clavinet', 8: 'Celesta', 9: 'Glockenspiel',
+    10: 'Music Box', 11: 'Vibraphone', 12: 'Marimba', 13: 'Xylophone',
+    14: 'Tubular Bells', 15: 'Dulcimer', 16: 'Drawbar Organ', 17: 'Percussive Organ',
+    18: 'Rock Organ', 19: 'Church Organ', 20: 'Reed Organ', 21: 'Accordion',
+    22: 'Harmonica', 23: 'Tango Accordion', 24: 'Acoustic Guitar (nylon)',
+    25: 'Acoustic Guitar (steel)', 26: 'Electric Guitar (jazz)', 
+    27: 'Electric Guitar (clean)', 28: 'Electric Guitar (muted)', 
+    29: 'Overdriven Guitar', 30: 'Distortion Guitar', 31: 'Guitar Harmonics', 
+    32: 'Acoustic Bass', 33: 'Electric Bass (finger)', 34: 'Electric Bass (pick)', 
+    35: 'Fretless Bass', 36: 'Slap Bass 1', 37: 'Slap Bass 2', 
+    38: 'Synth Bass 1', 39: 'Synth Bass 2', 40: 'Violin', 41: 'Viola',
+    42: 'Cello', 43: 'Contrabass', 44: 'Tremolo Strings', 45: 'Pizzicato Strings', 
+    46: 'Orchestral Harp', 47: 'Timpani', 48: 'String Ensemble 1', 
+    49: 'String Ensemble 2', 50: 'Synth Strings 1', 51: 'Synth Strings 2', 
+    52: 'Choir Aahs', 53: 'Voice Oohs', 54: 'Synth Voice', 55: 'Orchestra Hit',
+    56: 'Trumpet', 57: 'Trombone', 58: 'Tuba', 59: 'Muted Trumpet', 
+    60: 'French Horn', 61: 'Brass Section', 62: 'Synth Brass 1', 
+    63: 'Synth Brass 2', 64: 'Soprano Sax', 65: 'Alto Sax', 
+    66: 'Tenor Sax', 67: 'Baritone Sax', 68: 'Oboe', 69: 'English Horn', 
+    70: 'Bassoon', 71: 'Clarinet', 72: 'Piccolo', 73: 'Flute', 
+    74: 'Recorder', 75: 'Pan Flute', 76: 'Blown Bottle', 
+    77: 'Shakuhachi', 78: 'Whistle', 79: 'Ocarina', 80: 'Lead 1 (square)', 
+    81: 'Lead 2 (sawtooth)', 82: 'Lead 3 (calliope)', 83: 'Lead 4 (chiff)', 
+    84: 'Lead 5 (charang)', 85: 'Lead 6 (voice)', 86: 'Lead 7 (fifths)', 
+    87: 'Lead 8 (bass + lead)', 88: 'Pad 1 (new age)', 89: 'Pad 2 (warm)', 
+    90: 'Pad 3 (polysynth)', 91: 'Pad 4 (choir)', 92: 'Pad 5 (bowed)', 
+    93: 'Pad 6 (metallic)', 94: 'Pad 7 (halo)', 95: 'Pad 8 (sweep)', 
+    96: 'FX 1 (rain)', 97: 'FX 2 (soundtrack)', 98: 'FX 3 (crystal)', 
+    99: 'FX 4 (atmosphere)', 100: 'FX 5 (brightness)', 101: 'FX 6 (goblins)', 
+    102: 'FX 7 (echoes)', 103: 'FX 8 (sci-fi)', 104: 'Sitar', 105: 'Banjo', 
+    106: 'Shamisen', 107: 'Koto', 108: 'Kalimba', 109: 'Bagpipe', 
+    110: 'Fiddle', 111: 'Shanai', 112: 'Tinkle Bell', 113: 'Agogo', 
+    114: 'Steel Drums', 115: 'Woodblock', 116: 'Taiko Drum', 
+    117: 'Melodic Tom', 118: 'Synth Drum', 119: 'Reverse Cymbal', 
+    120: 'Guitar Fret Noise', 121: 'Breath Noise', 122: 'Seashore', 
+    123: 'Bird Tweet', 124: 'Telephone Ring', 125: 'Helicopter', 
+    126: 'Applause', 127: 'Gunshot'
+}
 # Run the program
 if __name__ == '__main__':
-    visualizer = Turtle_Pool()
-    visualizer.run()
+    turtle = Turtle_Pool()
+    turtle.run()
