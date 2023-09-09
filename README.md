@@ -7,7 +7,7 @@ todo:
 - give each ball its proper color (done)
 - add 8 ball and logic for it (8-ball exist, but needs its own logic class)
 - better graphics (its progressing)
-- sound effects (none yet)
+- sound effects (added mido library midi sounds)
 - music (none yet)
 - main menu and settings pages (press esc to rerack and manually change player so far)
 - ai (none yet)
