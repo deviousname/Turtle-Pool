@@ -2,8 +2,9 @@
 Aperiodic Pool
 
 Controls:
-- Left click on the cue ball and drag the mouse to aim, release to hit the cue ball.
-- Right click table to move cue ball.
+- Left click on the cue ball and drag the mouse to aim, release or left-click to hit the cue ball.
+- Right click to cancel shot.
+- Middle mouse click table to move cue ball.
 - 
 - R will rotate the table
 - (buggy - sometimes balls appear off table, just keep rotating)
