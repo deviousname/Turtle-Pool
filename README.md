@@ -2,14 +2,11 @@
 Aperiodic Pool
 
 todo:
-- adjust the holes for better balance (done)
 - translate the ball positions when rotation key is press (buggy but works)
-- give each ball its proper color (done)
 - add 8 ball and logic for it (8-ball exist, but needs its own logic class)
 - better graphics (its progressing)
-- sound effects (added mido library midi sounds)
 - music (none yet)
-- main menu and settings pages (press esc to rerack and manually change player so far)
+- main menu and settings pages improvement
 - ai (none yet)
 - online multiplayer (none yet)
 
