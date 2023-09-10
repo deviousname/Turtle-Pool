@@ -1,5 +1,5 @@
 import pygame, math, time
-from pygame.locals import QUIT, KEYDOWN, MOUSEBUTTONDOWN
+from pygame.locals import QUIT, KEYDOWN, MOUSEBUTTONDOWN, MOUSEBUTTONUP
 import numpy as np
 from pygame.math import Vector2
 import pygame.gfxdraw
@@ -164,7 +164,7 @@ class Turtle_Pool:
         self.clock = pygame.time.Clock()
         
         # Constants
-        self.WIDTH, self.HEIGHT = 768, 768
+        self.WIDTH, self.HEIGHT = 1000, 1000
         self.WHITE = (255,255,255)
         self.GREEN = (0, 255, 0)
         
@@ -207,7 +207,23 @@ class Turtle_Pool:
 
         # Start sound engine
         self.midi_instrument = MidiInstrument()
-
+        
+        # Fonts
+        self.font_big = pygame.font.SysFont(None, 50)
+        self.font_medium = pygame.font.SysFont(None, 40)
+        self.font_small = pygame.font.SysFont(None, 36)
+        
+        # Colors
+        self.color_red = (255, 0, 0)
+        self.color_blue = (0, 0, 255)
+        self.color_green = (0, 255, 0)
+        self.color_white = (255, 255, 255)
+        self.color_dark_gray = (50, 50, 50)
+        
+        # Buttons
+        self.rerack_text = self.font_medium.render('Re-Rack', True, self.color_white)
+        self.endturn_text = self.font_medium.render('Change-Player', True, self.color_white)
+        
     def init_game_state(self):
         self.current_player = 1
         self.score_player1 = 0
@@ -266,20 +282,6 @@ class Turtle_Pool:
         while any(ball.pos.distance_to(center_pos) < 2 * ball.radius for ball in self.balls):
             center_pos += Vector2(5, 5)  # Adjust the position slightly
         return center_pos
-        
-    def get_polygon_points(self, p):
-        x, y = self.f(p)
-        for i in range(len(x)):
-            if self.flip_x:
-                x[i] = -x[i]
-            if self.flip_y:
-                y[i] = -y[i]
-            x[i], y[i] = self.rotate_point(x[i], y[i], self.rotation_angle, 0, 0)
-        
-        normalized_x = (x - x.min()) / (x.max() - x.min()) * (self.WIDTH - 40) + 20
-        normalized_y = (y - y.min()) / (y.max() - y.min()) * (self.HEIGHT - 40) + 20
-        
-        return normalized_x, normalized_y
     
     def generate_holes(self, num_holes):
         # This function generates holes spread around the polygon
@@ -345,30 +347,15 @@ class Turtle_Pool:
             hole_position = current_vertex + mid_angle_dir * offset
 
             # If the hole is outside the polygon, invert its offset
-            if not self.is_point_inside_polygon(hole_position, points):
+            if not self.point_inside_polygon(hole_position, points):
                 hole_position = current_vertex - mid_angle_dir * offset  # Invert offset
             
             holes.append(Hole(hole_position))
 
         return holes
     
-    def is_point_inside_polygon(self, point, polygon):
-        """Check if point is inside the polygon using the ray-casting algorithm."""
+    def point_inside_polygon(self, point, polygon):
         x, y = point
-        odd_nodes = False
-        j = len(polygon) - 1  # The last vertex is the previous one to the first
-
-        for i in range(len(polygon)):
-            xi, yi = polygon[i]
-            xj, yj = polygon[j]
-            if yi < y and yj >= y or yj < y and yi >= y:
-                if xi + (y - yi) / (yj - yi) * (xj - xi) < x:
-                    odd_nodes = not odd_nodes
-            j = i
-
-        return odd_nodes
-    
-    def point_inside_polygon(self, x, y, polygon):
         n = len(polygon)
         oddNodes = False
         j = n - 1
@@ -423,6 +410,20 @@ class Turtle_Pool:
             hole.draw(self.screen)
 
         return points
+    
+    def get_polygon_points(self, p):
+        x, y = self.f(p)
+        for i in range(len(x)):
+            if self.flip_x:
+                x[i] = -x[i]
+            if self.flip_y:
+                y[i] = -y[i]
+            x[i], y[i] = self.rotate_point(x[i], y[i], self.rotation_angle, 0, 0)
+        
+        normalized_x = (x - x.min()) / (x.max() - x.min()) * (self.WIDTH - 40) + 20
+        normalized_y = (y - y.min()) / (y.max() - y.min()) * (self.HEIGHT - 40) + 20
+        
+        return normalized_x, normalized_y
     
     def draw_ball(self):
         pygame.draw.circle(self.screen, self.WHITE, (int(self.ball_pos.x), int(self.ball_pos.y)), self.ball_radius)
@@ -514,130 +515,68 @@ class Turtle_Pool:
             return True
 
     def draw_score(self):
-        # Adjusting font size
-        if self.current_player == 1:
-            font1 = pygame.font.SysFont(None, 50)
-            font2 = pygame.font.SysFont(None, 36)
-            color1 = (255, 0, 0)  # Red for active player
-            color2 = (0, 0, 255)  # Blue for inactive player
-            self.screen.blit(font1.render(f'Player 1: {self.score_player1}', True, color1), (self.WIDTH - 250, 10))
-            self.screen.blit(font2.render(f'Player 2: {self.score_player2}', True, color2), (self.WIDTH - 230, 60))
-        else:
-            font1 = pygame.font.SysFont(None, 36)
-            font2 = pygame.font.SysFont(None, 50)
-            color1 = (255, 0, 0)
-            color2 = (0, 0, 255)
-            self.screen.blit(font1.render(f'Player 1: {self.score_player1}', True, color1), (self.WIDTH - 230, 60))
-            self.screen.blit(font2.render(f'Player 2: {self.score_player2}', True, color2), (self.WIDTH - 250, 10))
-
-        # Display the value of self.p on the bottom right corner
-        p_font = pygame.font.SysFont(None, 36)
-        p_color = (0, 255, 0)
+        self._display_player_scores()
+        self._display_p_value()
+        
+        if self.display_menu:
+            self._display_button('Re-Rack', self.setup_balls, y_position=10)
+            self._display_button('Change-Player', self._toggle_player, y_position=70)
+            self._display_instrument_button()
+        
+    def _display_player_scores(self):
+        active_font, inactive_font = (self.font_big, self.font_small) if self.current_player == 1 else (self.font_small, self.font_big)
+        self.screen.blit(active_font.render(f'Player 1: {self.score_player1}', True, self.color_red), (self.WIDTH - 250, 10))
+        self.screen.blit(inactive_font.render(f'Player 2: {self.score_player2}', True, self.color_blue), (self.WIDTH - 230, 60))
+    
+    def _display_p_value(self):
         p_text = f"P = {str(int(self.p*100)/100).replace('.', '.')}"
-        p_text_surface = p_font.render(p_text, True, p_color)
-        # Position the text to start at the bottom right corner. Adjust the -10 for fine-tuning the vertical position.
+        p_text_surface = self.font_small.render(p_text, True, self.color_green)
         p_position = (self.WIDTH - (self.WIDTH//7), self.HEIGHT - p_text_surface.get_height() -  (self.WIDTH//32))
         self.screen.blit(p_text_surface, p_position)
+    
+    def _display_button(self, text, action, y_position):
+        # Generalized function to display buttons
+        button_font = self.font_medium
+        text_render = button_font.render(text, True, self.color_white)
+        text_width, text_height = text_render.get_size()
+        button_width = text_width + 20
+        button_height = text_height + 10
+        button_x = (self.WIDTH - button_width) // 2
+        pygame.draw.rect(self.screen, self.color_dark_gray, (button_x, y_position, button_width, button_height))
+        self.screen.blit(text_render, (button_x + 10, y_position + 5))
+        self._check_button_click(button_x, y_position, button_width, button_height, action)
+    
+    def _display_instrument_button(self):
+        instr_name = GM_INSTRUMENTS[self.midi_instrument.instrument]
+        instr_text = f'< {instr_name} >'
+        text_render = self.font_medium.render(instr_text, True, self.color_white)
         
-        if self.display_menu:  
-            # Re-Rack button
-            rerack_font = pygame.font.SysFont(None, 40)
-            rerack_color = (255, 255, 255)  # White color for the text
-            rerack_bg = (50, 50, 50)  # Dark grey color for the button background
-            rerack_text = rerack_font.render('Re-Rack', True, rerack_color)
-            rerack_text_width, rerack_text_height = rerack_text.get_size()
-            
-            # Button dimensions
-            button_width = rerack_text_width + 20
-            button_height = rerack_text_height + 10
-            button_x = (self.WIDTH - button_width) // 2
-            button_y = 10
-            
-            # Draw button background
-            pygame.draw.rect(self.screen, rerack_bg, (button_x, button_y, button_width, button_height))
-            # Draw the text on the button
-            self.screen.blit(rerack_text, (button_x + 10, button_y + 5))
+        text_width, text_height = text_render.get_size()
+        button_width = text_width + 20
+        button_height = text_height + 10
+        button_x = (self.WIDTH - button_width) // 2
+        button_y = 130  # Adjust this position as needed
+        
+        pygame.draw.rect(self.screen, self.color_dark_gray, (button_x, button_y, button_width, button_height))
+        self.screen.blit(text_render, (button_x + 10, button_y + 5))
+        
+        # Check clicks on the left "<" section of the button for instrument down
+        self._check_button_click(button_x, button_y, text_width // 3, button_height, self.midi_instrument.instrument_down)
+        
+        # Check clicks on the right ">" section of the button for instrument up
+        self._check_button_click(button_x + 2 * text_width // 3, button_y, text_width // 3, button_height, self.midi_instrument.instrument_up)
 
-            # Check if the button is clicked
-            mouse = pygame.mouse.get_pos()
-            click = pygame.mouse.get_pressed()
-            if button_x <= mouse[0] <= button_x + button_width and button_y <= mouse[1] <= button_y + button_height:
-                if click[0]:  # If left mouse button is pressed
-                    self.setup_balls()
-              
-            # End-Turn button
-            endturn_font = pygame.font.SysFont(None, 40)
-            endturn_color = (255, 255, 255)  # White color for the text
-            endturn_bg = (50, 50, 50)  # Dark grey color for the button background
-            endturn_text = endturn_font.render('Change-Player', True, endturn_color)
-            endturn_text_width, endturn_text_height = endturn_text.get_size()
-            
-            # Button dimensions (positioned below Re-Rack button)
-            button_width_endturn = endturn_text_width + 20
-            button_height_endturn = endturn_text_height + 10
-            button_x_endturn = (self.WIDTH - button_width_endturn) // 2
-            button_y_endturn = button_y + button_height + 10  # 10 pixels below the Re-Rack button
-            
-            # Draw button background
-            pygame.draw.rect(self.screen, endturn_bg, (button_x_endturn, button_y_endturn, button_width_endturn, button_height_endturn))
+    def _check_button_click(self, x, y, width, height, action):
+        mouse = pygame.mouse.get_pos()
+        click = pygame.mouse.get_pressed()
+        current_time = pygame.time.get_ticks()
+        if x <= mouse[0] <= x + width and y <= mouse[1] <= y + height:
+            if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
+                action()
+                self.last_click_time = current_time
 
-            # Draw the text on the button
-            self.screen.blit(endturn_text, (button_x_endturn + 10, button_y_endturn + 5))
-
-            # Check if the End-Turn button is clicked
-            mouse = pygame.mouse.get_pos()
-            click = pygame.mouse.get_pressed()
-
-            # Get current time
-            current_time = pygame.time.get_ticks()
-
-            # Check if the Re-Rack button is clicked
-            if button_x <= mouse[0] <= button_x + button_width and button_y <= mouse[1] <= button_y + button_height:
-                if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
-                    self.setup_balls()
-                    self.last_click_time = current_time
-
-            # Check if the End-Turn button is clicked
-            if button_x_endturn <= mouse[0] <= button_x_endturn + button_width_endturn and button_y_endturn <= mouse[1] <= button_y_endturn + button_height_endturn:
-                if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
-                    if self.current_player == 1:
-                        self.current_player = 2
-                    else:
-                        self.current_player = 1
-                    self.last_click_time = current_time
-
-            # Instrument-Change button
-            instr_font = pygame.font.SysFont(None, 40)
-            instr_color = (255, 255, 255)  # White color for the text
-            instr_bg = (50, 50, 50)  # Dark grey color for the button background
-            
-            instr_name = GM_INSTRUMENTS[self.midi_instrument.instrument]
-            instr_text = instr_font.render('< {} >'.format(instr_name), True, instr_color)
-            instr_text_width, instr_text_height = instr_text.get_size()
-            
-            # Button dimensions (positioned below Change-Player button)
-            button_width_instr = instr_text_width + 20
-            button_height_instr = instr_text_height + 10
-            button_x_instr = (self.WIDTH - button_width_instr) // 2
-            button_y_instr = button_y_endturn + button_height_endturn + 10  # 10 pixels below the Change-Player button
-            
-            # Draw button background
-            pygame.draw.rect(self.screen, instr_bg, (button_x_instr, button_y_instr, button_width_instr, button_height_instr))
-            
-            # Draw the text on the button
-            self.screen.blit(instr_text, (button_x_instr + 10, button_y_instr + 5))
-            
-            # Check if the Instrument Up button is clicked
-            if button_x_instr <= mouse[0] <= button_x_instr + instr_text_width // 3 and button_y_instr <= mouse[1] <= button_y_instr + button_height_instr:
-                if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
-                    self.midi_instrument.instrument_down()
-                    self.last_click_time = current_time
-
-            # Check if the Instrument Down button is clicked
-            if button_x_instr + 2 * instr_text_width // 3 <= mouse[0] <= button_x_instr + button_width_instr and button_y_instr <= mouse[1] <= button_y_instr + button_height_instr:
-                if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
-                    self.midi_instrument.instrument_up()
-                    self.last_click_time = current_time
+    def _toggle_player(self):
+        self.current_player = 2 if self.current_player == 1 else 1
                     
     def handle_ball_drag(self, event, ball):
         all_balls_stopped = all(ball.vel == Vector2(0, 0) for ball in self.balls)
@@ -678,19 +617,42 @@ class Turtle_Pool:
         # Calculate the centroid of the current table
         table_centroid = self.get_polygon_centroid(self.current_table_points)
         
-        # Rotate ball positions and check their positions
+        # Get bounding box of current table for quick checks
+        table_bbox = np.array([
+            [min(pt[0] for pt in self.current_table_points), min(pt[1] for pt in self.current_table_points)],
+            [max(pt[0] for pt in self.current_table_points), max(pt[1] for pt in self.current_table_points)]
+        ])
+        
+        rotation_matrix = np.array([
+            [np.cos(np.pi / 6), -np.sin(np.pi / 6)],
+            [np.sin(np.pi / 6), np.cos(np.pi / 6)]
+        ])
+        
         for ball in self.balls:
-            ball.pos.x, ball.pos.y = self.rotate_point(ball.pos.x, ball.pos.y, np.pi / 6, self.WIDTH / 2, self.HEIGHT / 2)
+            # Rotate ball positions
+            ball.pos.x, ball.pos.y = np.dot(rotation_matrix, [ball.pos.x - self.WIDTH / 2, ball.pos.y - self.HEIGHT / 2]) + [self.WIDTH / 2, self.HEIGHT / 2]
+            
+            # Quick bounding box check before point-in-polygon check
+            if not (table_bbox[0][0] <= ball.pos.x <= table_bbox[1][0] and table_bbox[0][1] <= ball.pos.y <= table_bbox[1][1]):
+                is_inside = False
+            else:
+                is_inside = self.point_inside_polygon([ball.pos.x, ball.pos.y], self.current_table_points)
             
             # If ball is outside table, adjust its position
-            while not self.point_inside_polygon(ball.pos.x, ball.pos.y, self.current_table_points):
+            while not is_inside:
                 # Move ball towards the centroid of the table
                 direction_to_centroid = table_centroid - ball.pos
                 direction_to_centroid = direction_to_centroid.normalize()  # Get unit vector towards centroid
-                ball.pos += direction_to_centroid  # Move ball slightly towards the centroid
+                ball.pos += direction_to_centroid
+                
+                # Check again with bounding box and then point-in-polygon
+                if not (table_bbox[0][0] <= ball.pos.x <= table_bbox[1][0] and table_bbox[0][1] <= ball.pos.y <= table_bbox[1][1]):
+                    is_inside = False
+                else:
+                    is_inside = self.point_inside_polygon([ball.pos.x, ball.pos.y], self.current_table_points)
             
             # Rotate ball velocities to adjust trajectories
-            ball.vel.x, ball.vel.y = self.rotate_point(ball.vel.x, ball.vel.y, np.pi / 6, 0, 0)
+            ball.vel.x, ball.vel.y = np.dot(rotation_matrix, [ball.vel.x, ball.vel.y])
             
     def run(self):
         running = True
@@ -731,14 +693,22 @@ class Turtle_Pool:
                         self.mouse_button_up  = False
                 self.handle_ball_drag(event, self.cue_ball)
 
-                # When a collision occurs:
-                for ball in self.balls:
+                # Start by iterating through all balls
+                for i, ball in enumerate(self.balls):
+                    # Move the ball and handle ball-polygon collision
                     self.move_ball(ball)
                     self.handle_ball_polygon_collision(ball)  # wall collide
-                    self.handle_ball_polygon_overlap(ball)  # Check and handle ball overlap with polygon
+
+                    # Handle ball-hole collision
                     for hole in self.holes:
                         if ball.pos.distance_to(hole.pos) < hole.radius:
                             self.balls.remove(ball)
+                            
+                            # Play the note for ball going into the hole
+                            inverse_velocity = Vector2(0, 0) - ball.vel  # Inverse the velocity
+                            midi_note = self.get_midi_note_from_velocity(inverse_velocity)
+                            self.midi_instrument.play_collision_sound(midi_note)
+
                             if ball == self.cue_ball:  # If cue ball goes into the hole
                                 ball.pos = self.get_free_position()
                                 ball.vel = Vector2(0, 0)
@@ -748,11 +718,21 @@ class Turtle_Pool:
                             else:
                                 self.score_player2 += 1
                             self.player_scored = True  # Set the flag when a player scores
+                            break
 
-                # Check if all balls have stopped moving
+                    # Handle ball-ball collision
+                    for ball2 in self.balls[i+1:]:
+                        if self.handle_ball_collision(ball, ball2):
+                            average_velocity = (ball.vel + ball2.vel) / 2  # Compute the average velocity
+                            midi_note = self.get_midi_note_from_velocity(average_velocity)
+                            self.midi_instrument.play_collision_sound(midi_note)  # Play the note based on average velocity
+                    
+                    ball.draw(self.screen)
+
+                # After processing all balls, check if they have all stopped moving
                 all_balls_stopped = all(ball.vel == Vector2(0, 0) for ball in self.balls)
 
-                if all_balls_stopped and self.ball_was_moving:  
+                if all_balls_stopped and self.ball_was_moving:
                     if not self.player_scored:  # Only switch players if the current player did not score
                         if self.current_player == 1:
                             self.current_player = 2
@@ -762,17 +742,11 @@ class Turtle_Pool:
 
                 # Update the ball_was_moving flag for the next frame
                 self.ball_was_moving = not all_balls_stopped
-        
+
+                # Draw all holes
                 for hole in self.holes:
                     hole.draw(self.screen)
-                    
-                for i, ball1 in enumerate(self.balls):
-                    for ball2 in self.balls[i+1:]:
-                        if self.handle_ball_collision(ball1, ball2):
-                            average_velocity = (ball1.vel + ball2.vel) / 2  # Compute the average velocity
-                            midi_note = self.get_midi_note_from_velocity(average_velocity)
-                            self.midi_instrument.play_collision_sound(midi_note)  # Play the note based on average velocity
-                    ball1.draw(self.screen)
+
 
                 try:
                     self.pool_stick.draw(self.screen)
@@ -796,7 +770,7 @@ class Turtle_Pool:
                 pass
         pygame.quit()
         
-    def get_midi_note_from_velocity(self, velocity, max_velocity=127, midpoint=25, scale_factor=3):  
+    def get_midi_note_from_velocity(self, velocity, max_velocity=127, midpoint=32, scale_factor=2):  
         # The scale_factor controls the sensitivity around the midpoint
         midpoint_normalized = midpoint / 127.0
         x = (velocity.magnitude() / max_velocity) - midpoint_normalized
@@ -810,7 +784,7 @@ class MidiInstrument:
         # Initialize your midi port here
         self.outport = mido.open_output()  # Use your MIDI port details here
         self.current_notes = {}
-        self.instrument = 96
+        self.instrument = 115
         self.current_note = 64  # Starting with Middle C
         self.change_instrument(self.instrument)
         self.note_lock = threading.Lock()
@@ -869,7 +843,7 @@ class MidiInstrument:
     def _play_collision_sound_thread(self, midi_note):
         shifted_note = (midi_note + 12) % 128  # Increase by an octave for the sound effect
         self.note_on(midi_note, shifted_note)
-        time.sleep(0.0625)
+        time.sleep(0.0625 * 4)
         self.note_off(midi_note, shifted_note)
         
 GM_INSTRUMENTS = {
