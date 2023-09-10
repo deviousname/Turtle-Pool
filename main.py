@@ -75,88 +75,97 @@ class Hole:
 
     def draw(self, screen):
         pygame.draw.circle(screen, self.color, (int(self.pos.x), int(self.pos.y)), self.radius)
-        
+
+MAX_STICK_LENGTH = 255  # Set this appropriately for maximum power.
+STICK_DRIFT = .2  # Maximum random drift in pixels.
+MAX_OFFSET = 64  # This value determines the maximum distance the stick can be pulled back.
+
 class PoolStick:
     def __init__(self):
         self.start_position = Vector2(0, 0)
         self.end_position = Vector2(0, 0)
         self.is_visible = False
 
+        # Moved constant definitions here
+        self.thickness_tip = 3 
+        self.thickness_base = 10 
+        self.border_color = (40, 40, 40)  # Slightly off black/brown
+        self.base_color = (139, 69, 19)  # Brown
+        self.gradient_colors = [
+            (160, 82, 45),
+            (205, 133, 63),
+            (210, 105, 30)
+        ]
+        self.ferrule_offset = 5  # Adjust this to control the length of the ferrule
+
     def set_start_position(self, pos):
         self.start_position = Vector2(pos)
-    
+        
+    def update_start_position(self, pos):
+        self.start_position = Vector2(pos)
+        
     def set_end_position(self, pos):
         self.end_position = Vector2(pos)
 
+    def _calculate_direction_and_magnitude(self):
+        direction = self.end_position - self.start_position
+        magnitude = direction.length()
+        direction.normalize_ip()
+        return direction, magnitude
+
+    def _calculate_offsets(self, direction):
+        offset_base = direction.rotate(90) * (self.thickness_base / 2)
+        offset_tip = direction.rotate(90) * (self.thickness_tip / 2)
+        return offset_base, offset_tip
+
     def draw(self, screen):
-        if self.is_visible:
-            # Calculate the direction and magnitude of the pool stick
-            direction = self.end_position - self.start_position
-            magnitude = direction.length()
+        if not self.is_visible:
+            return
 
-            # Calculate a normalized direction vector
-            direction.normalize_ip()
+        direction, magnitude = self._calculate_direction_and_magnitude()
+        offset_base, offset_tip = self._calculate_offsets(direction)
 
-            # Draw the pool stick with a tapered effect using polygons
-            thickness_tip = 3 
-            thickness_base = 10 
+        self._draw_border(screen, direction, offset_base, offset_tip)
+        self._draw_gradient_body(screen, direction, offset_base, offset_tip, magnitude)
+        self._draw_ferrule(screen, direction)
+        self._draw_tip_and_butt(screen, direction, offset_base, offset_tip)
 
-            offset_base = direction.rotate(90) * (thickness_base / 2)
-            offset_tip = direction.rotate(90) * (thickness_tip / 2)
-
-            # Define the four corners of the polygon for the border
-            p1_border = self.end_position + offset_base + direction.rotate(90)
-            p2_border = self.end_position - offset_base - direction.rotate(90)
-            p3_border = self.start_position - offset_tip - direction.rotate(90)
-            p4_border = self.start_position + offset_tip + direction.rotate(90)
+    def _draw_border(self, screen, direction, offset_base, offset_tip):
+        # Define the four corners of the polygon for the border
+        p1_border = self.end_position + offset_base + direction.rotate(90)
+        p2_border = self.end_position - offset_base - direction.rotate(90)
+        p3_border = self.start_position - offset_tip - direction.rotate(90)
+        p4_border = self.start_position + offset_tip + direction.rotate(90)
             
-            # Draw the border first
-            border_color = (40, 40, 40)  # Slightly off black/brown
-            pygame.draw.polygon(screen, border_color, [p1_border, p2_border, p3_border, p4_border])
-            
-            # Define the four corners of the polygon
-            p1 = self.end_position + offset_base
-            p2 = self.end_position - offset_base
-            p3 = self.start_position - offset_tip
-            p4 = self.start_position + offset_tip
+        # Draw the border
+        pygame.draw.polygon(screen, self.border_color, [p1_border, p2_border, p3_border, p4_border])
 
-            # Color gradients for the wood grain
-            base_color = (139, 69, 19)  # Brown
-            gradient_colors = [
-                (160, 82, 45),
-                (205, 133, 63),
-                (210, 105, 30)
-            ]
+    def _draw_gradient_body(self, screen, direction, offset_base, offset_tip, magnitude):
+        step = magnitude / len(self.gradient_colors)
+        for i, color in enumerate(self.gradient_colors):
+            start_frac = i / len(self.gradient_colors)
+            end_frac = (i + 1) / len(self.gradient_colors)
 
-            # Draw the main body of the stick with gradients
-            step = magnitude / len(gradient_colors)
-            for i, color in enumerate(gradient_colors):
-                start_frac = i / len(gradient_colors)
-                end_frac = (i + 1) / len(gradient_colors)
+            current_thickness_start = self.thickness_base * (1 - start_frac) + self.thickness_tip * start_frac
+            current_thickness_end = self.thickness_base * (1 - end_frac) + self.thickness_tip * end_frac
 
-                current_thickness_start = thickness_base * (1 - start_frac) + thickness_tip * start_frac
-                current_thickness_end = thickness_base * (1 - end_frac) + thickness_tip * end_frac
+            offset_start = direction.rotate(90) * (current_thickness_start / 2)
+            offset_end = direction.rotate(90) * (current_thickness_end / 2)
 
-                offset_start = direction.rotate(90) * (current_thickness_start / 2)
-                offset_end = direction.rotate(90) * (current_thickness_end / 2)
+            pygame.draw.polygon(screen, color, [
+                self.end_position - direction * magnitude * start_frac + offset_start,
+                self.end_position - direction * magnitude * start_frac - offset_start,
+                self.end_position - direction * magnitude * end_frac - offset_end,
+                self.end_position - direction * magnitude * end_frac + offset_end
+            ])
 
-                pygame.draw.polygon(screen, color, [
-                    self.end_position - direction * magnitude * start_frac + offset_start,  # Starting from end_position
-                    self.end_position - direction * magnitude * start_frac - offset_start,
-                    self.end_position - direction * magnitude * end_frac - offset_end,
-                    self.end_position - direction * magnitude * end_frac + offset_end
-                ])
+    def _draw_ferrule(self, screen, direction):
+        ferrule_position = self.start_position + direction * self.ferrule_offset
+        pygame.draw.circle(screen, (255, 255, 255), ferrule_position, 3.5)
 
-            # Draw the ferrule: a small circle slightly behind the tip
-            ferrule_offset = 5  # Adjust this to control the length of the ferrule
-            ferrule_position = self.start_position + direction * ferrule_offset
-            pygame.draw.circle(screen, (255, 255, 255), ferrule_position, 3.5)  # White color for the ferrule
-
-            # Draw the pool stick tip at the start_position
-            pygame.draw.circle(screen, (127, 127, 255), self.start_position, 3)
-
-            # Draw the butt of the pool stick at the end_position
-            pygame.draw.circle(screen, (40, 40, 40), self.end_position, thickness_base / 2)
+    def _draw_tip_and_butt(self, screen, direction, offset_base, offset_tip):
+        pygame.draw.circle(screen, (127, 127, 255), self.start_position, 3)
+        pygame.draw.circle(screen, (40, 40, 40), self.end_position, self.thickness_base / 2)
 
 class Turtle_Pool:
     def __init__(self):
@@ -203,7 +212,7 @@ class Turtle_Pool:
         self.setup_balls()
 
         # Create 7 holes
-        self.holes = self.generate_holes(7)
+        self.holes = self.generate_holes(14)
 
         # Start sound engine
         self.midi_instrument = MidiInstrument()
@@ -231,8 +240,17 @@ class Turtle_Pool:
 
     def setup_balls(self):
         self.init_game_state()
+
+        # Center of the screen
+        screen_center_x, screen_center_y = self.WIDTH / 2, self.HEIGHT / 2
+
+        # Set up the cue ball and rotate its position around the screen's center
+        cue_x, cue_y = self.WIDTH / 2, self.HEIGHT - (self.HEIGHT // 2 + 60)
+        cue_x, cue_y = self.rotate_point(cue_x, cue_y, self.rotation_angle, screen_center_x, screen_center_y)
+        self.cue_ball = Ball(Vector2(cue_x, cue_y), (255, 255, 255))  # White color
+
         self.balls = [self.cue_ball]
-        
+
         # Defining solid and striped colors
         solid_colors = [
             (255, 255, 0),  # Yellow
@@ -266,11 +284,14 @@ class Turtle_Pool:
                 else:
                     color = solid_colors[order[ball_idx] % 7]
                     is_striped = order[ball_idx] >= 7
-
+                    
                 x = start_x + col * spacing - (row-1) * spacing / 2
                 y = start_y + (row-1) * spacing
+
+                # Rotate each ball's position around the screen's center
+                x, y = self.rotate_point(x, y, self.rotation_angle, screen_center_x, screen_center_y)
+
                 self.balls.append(Ball(Vector2(x, y), color, is_striped))
-                
                 ball_idx += 1
 
     def switch_player(self):
@@ -398,10 +419,6 @@ class Turtle_Pool:
         self.current_table_points = points
         self.holes = self.generate_holes_from_points(points, 7)
         
-        # Clear the polygon surface and redraw the polygon on it
-        self.polygon_surface.fill((0, 0, 0, 0))  # Clear with full transparency
-        pygame.draw.polygon(self.polygon_surface, (0, 255, 0, 255), points)  # Draw with white color
-        
         pygame.draw.polygon(self.screen, self.GREEN, points)
         self.draw_wooden_edge(self.screen, points)
 
@@ -467,7 +484,7 @@ class Turtle_Pool:
                 # Impart momentum to the ball
                 ball.vel += move_direction * 2  # Adjust the multiplier for desired momentum
 
-    def handle_ball_polygon_collision(self, ball):
+    def handle_ball_polygon_collision(self, ball): # Table edges
         polygon_points = list(zip(*self.get_polygon_points(self.p)))
         for i in range(len(polygon_points)):
             segment_start = Vector2(polygon_points[i])
@@ -561,48 +578,136 @@ class Turtle_Pool:
         self.screen.blit(text_render, (button_x + 10, button_y + 5))
         
         # Check clicks on the left "<" section of the button for instrument down
-        self._check_button_click(button_x, button_y, text_width // 3, button_height, self.midi_instrument.instrument_down)
-        
-        # Check clicks on the right ">" section of the button for instrument up
-        self._check_button_click(button_x + 2 * text_width // 3, button_y, text_width // 3, button_height, self.midi_instrument.instrument_up)
+        if self._check_button_click(button_x, button_y, text_width // 3, button_height, self.midi_instrument.instrument_down):
+            return
 
-    def _check_button_click(self, x, y, width, height, action):
+        # Check clicks on the right ">" section of the button for instrument up
+        if self._check_button_click(button_x + 2 * text_width // 3, button_y, text_width // 3, button_height, self.midi_instrument.instrument_up):
+            return
+        
+    def _check_button_click(self, x, y, width, height, action, buttons=[1, 3]):  # Default to both left and right buttons
         mouse = pygame.mouse.get_pos()
         click = pygame.mouse.get_pressed()
         current_time = pygame.time.get_ticks()
         if x <= mouse[0] <= x + width and y <= mouse[1] <= y + height:
-            if click[0] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
-                action()
-                self.last_click_time = current_time
+            for button in buttons:
+                if click[button - 1] and current_time - self.last_click_time > 500:  # 500 milliseconds cooldown
+                    action()
+                    self.last_click_time = current_time
+                    return True  # Indicate that the button was clicked
+        return False
+
+    def _is_click_on_button(self, mouse_pos):
+        # List to store button dimensions and positions
+        buttons = []
+
+        # Re-Rack button
+        button_font = self.font_medium
+        text_render = button_font.render('Re-Rack', True, self.color_white)
+        text_width, text_height = text_render.get_size()
+        button_width = text_width + 20
+        button_height = text_height + 10
+        button_x = (self.WIDTH - button_width) // 2
+        buttons.append({'x': button_x, 'y': 10, 'width': button_width, 'height': button_height})
+
+        # Change-Player button
+        text_render = button_font.render('Change-Player', True, self.color_white)
+        text_width, text_height = text_render.get_size()
+        button_width = text_width + 20
+        button_height = text_height + 10
+        button_x = (self.WIDTH - button_width) // 2
+        buttons.append({'x': button_x, 'y': 70, 'width': button_width, 'height': button_height})
+
+        # Instrument button (covers the full width for both < and >)
+        instr_name = GM_INSTRUMENTS[self.midi_instrument.instrument]
+        instr_text = f'< {instr_name} >'
+        text_render = self.font_medium.render(instr_text, True, self.color_white)
+        text_width, text_height = text_render.get_size()
+        button_width = text_width + 20
+        button_height = text_height + 10
+        button_x = (self.WIDTH - button_width) // 2
+        buttons.append({'x': button_x, 'y': 130, 'width': button_width, 'height': button_height})
+
+        # Check if mouse_pos is within any of the button regions
+        for button in buttons:
+            if button['x'] <= mouse_pos[0] <= button['x'] + button['width'] and button['y'] <= mouse_pos[1] <= button['y'] + button['height']:
+                return True
+                
+        return False
 
     def _toggle_player(self):
         self.current_player = 2 if self.current_player == 1 else 1
                     
     def handle_ball_drag(self, event, ball):
-        all_balls_stopped = all(ball.vel == Vector2(0, 0) for ball in self.balls)
-        if self.player_shots > 0:            
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if ball.pos.distance_to(Vector2(event.pos)) <= ball.radius:
-                    self.is_dragging = True
-                    self.drag_start = Vector2(event.pos)
-                    self.pool_stick.set_start_position(ball.pos)
-                    self.pool_stick.set_end_position(self.drag_start)
-                    self.pool_stick.is_visible = True
+        cue_ball_stopped = ball.vel == Vector2(0, 0)
+        
+        # Check if mouse click is on any button:
+        mouse_pos = pygame.mouse.get_pos()
+        is_on_button = self._is_click_on_button(mouse_pos)
 
-            elif event.type == pygame.MOUSEBUTTONUP and event.button == 3:  # Right click
+        if event.type == pygame.MOUSEBUTTONDOWN and not is_on_button:
+            if event.button == 1:  # Left click
+                self.is_dragging = True
+                self.drag_start = ball.pos
+                self.pool_stick.is_visible = True
+                self.update_pool_stick_position(event.pos, ball)  # Update pool stick position right away
+
+            elif event.button == 3 and self.is_dragging:  # Right click
+                self.pool_stick.is_visible = False
+                self.is_dragging = False
+                
+            elif event.button == 2:  # Middle mouse button
                 self.cue_ball.pos = Vector2(event.pos)
 
-            elif event.type == pygame.MOUSEBUTTONUP or (event.type == pygame.ACTIVEEVENT and not event.gain and self.is_dragging):
-                # The additional condition checks if the window lost focus while dragging
-                if self.is_dragging:
-                    drag_end = Vector2(pygame.mouse.get_pos())  # Use the current mouse position instead
-                    ball.vel = (self.drag_start - drag_end) * 0.1  # Adjust this for different shot power
-                    self.pool_stick.is_visible = False
-                    self.is_dragging = False
+        elif event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1 and self.is_dragging:  # Left click
+                drag_end = Vector2(pygame.mouse.get_pos())
+                ball.vel = (self.drag_start - drag_end) * 0.1  # Adjust this for different shot power
+                self.pool_stick.is_visible = False
+                self.is_dragging = False
 
-            elif self.is_dragging:  # When dragging, constantly update pool stick's position
-                self.pool_stick.set_end_position(Vector2(event.pos))
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_w:
+                self.cue_ball.pos = Vector2(pygame.mouse.get_pos())
+
+        elif self.is_dragging:  
+            self.update_pool_stick_position(event.pos, ball)
                 
+    def trigger_hit_event(self, ball):
+        drag_end = self.pool_stick.get_end_position()
+        ball.vel = (self.drag_start - drag_end) * 0.1  # Adjust this for different shot power
+        self.pool_stick.is_visible = False
+        self.is_dragging = False
+    
+    def update_pool_stick_position(self, event_pos, ball):
+        # Current drag position
+        current_drag_pos = Vector2(event_pos)
+        
+        # Calculate direction from the current drag position to the ball
+        direction = (current_drag_pos - ball.pos).normalize()
+
+        # Calculate distance between ball and current_drag_pos
+        drag_distance = ball.pos.distance_to(current_drag_pos)
+
+        # Calculate the offset based on the drag distance and direction
+        offset_distance = min(MAX_OFFSET, drag_distance)
+        offset_vector = direction * offset_distance
+        
+        # Cap the distance at MAX_STICK_LENGTH
+        if drag_distance > MAX_STICK_LENGTH:
+            drag_distance = MAX_STICK_LENGTH
+
+        # Calculate the capped drag_end position
+        capped_drag_end = ball.pos + direction * drag_distance
+        
+        # Apply random drift using numpy for style
+        drift_offset = Vector2(np.random.uniform(-STICK_DRIFT, STICK_DRIFT), np.random.uniform(-STICK_DRIFT, STICK_DRIFT))
+        drifted_drag_end = capped_drag_end + drift_offset
+        
+        # Set the stick's positions with the offset
+        self.pool_stick.set_start_position(ball.pos + offset_vector)
+        self.pool_stick.set_end_position(drifted_drag_end + offset_vector)
+      
     def get_polygon_centroid(self, polygon):
         centroid = Vector2(0, 0)
         n = len(polygon)
@@ -691,16 +796,24 @@ class Turtle_Pool:
                         self.mouse_button_up  = True
                     elif event.type == MOUSEBUTTONUP:
                         self.mouse_button_up  = False
-                self.handle_ball_drag(event, self.cue_ball)
+
+                # Before processing all balls, assume all have stopped
+                all_balls_stopped = True
 
                 # Start by iterating through all balls
                 for i, ball in enumerate(self.balls):
                     # Move the ball and handle ball-polygon collision
                     self.move_ball(ball)
                     self.handle_ball_polygon_collision(ball)  # wall collide
+                    ball.draw(self.screen)
 
+                    # If any ball is moving, set the flag to False
+                    if ball.vel != Vector2(0, 0):
+                        all_balls_stopped = False
+                        
                     # Handle ball-hole collision
                     for hole in self.holes:
+                        hole.draw(self.screen)
                         if ball.pos.distance_to(hole.pos) < hole.radius:
                             self.balls.remove(ball)
                             
@@ -726,8 +839,6 @@ class Turtle_Pool:
                             average_velocity = (ball.vel + ball2.vel) / 2  # Compute the average velocity
                             midi_note = self.get_midi_note_from_velocity(average_velocity)
                             self.midi_instrument.play_collision_sound(midi_note)  # Play the note based on average velocity
-                    
-                    ball.draw(self.screen)
 
                 # After processing all balls, check if they have all stopped moving
                 all_balls_stopped = all(ball.vel == Vector2(0, 0) for ball in self.balls)
@@ -743,12 +854,14 @@ class Turtle_Pool:
                 # Update the ball_was_moving flag for the next frame
                 self.ball_was_moving = not all_balls_stopped
 
-                # Draw all holes
-                for hole in self.holes:
-                    hole.draw(self.screen)
-
+                # Update the ball_was_moving flag for the next frame
+                self.ball_was_moving = not all_balls_stopped
+                # This assumes you have an instance of PoolStick as self.pool_stick and cue ball as self.cue_ball
+                if not self.cue_ball.vel == Vector2(0, 0):  # Check if the cue ball is in motion
+                    self.pool_stick.update_start_position(self.cue_ball.pos)
 
                 try:
+                    self.handle_ball_drag(event, self.cue_ball)
                     self.pool_stick.draw(self.screen)
                 except:
                     pass
@@ -756,7 +869,6 @@ class Turtle_Pool:
                 self.draw_score()
                 pygame.display.flip()
 
-                pygame.display.update()
                 self.p += self.direction * self.delta_p
                 if self.p > 1:
                     self.p = 1
@@ -889,5 +1001,9 @@ GM_INSTRUMENTS = {
 }
 # Run the program
 if __name__ == '__main__':
+    #import cProfile
+    #turtle = Turtle_Pool() 
+    #cProfile.run('turtle.run()')
+
     turtle = Turtle_Pool()
     turtle.run()
